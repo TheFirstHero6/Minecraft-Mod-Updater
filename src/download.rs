@@ -6,6 +6,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::config::Config;
 use crate::resolve::ResolvedMod;
+use crate::scan::hash_file_sha512;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DownloadError {
@@ -15,6 +16,8 @@ pub enum DownloadError {
     Http(#[from] reqwest::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("verification failed: {0}")]
+    Verify(String),
 }
 
 pub async fn backup_file(src: &Path, backup_root: &Path) -> std::io::Result<PathBuf> {
@@ -47,11 +50,13 @@ pub async fn download_mod_update(
         .unwrap_or_else(|| "mod.jar".into());
     let part_path = dest_path.with_file_name(format!("{name}.part"));
 
-    if config.download.backup {
+    let backup_dest = if config.download.backup {
         let day = chrono_date_folder();
         let backup_dir = config.resolved_backup_dir().join(day);
-        backup_file(&dest_path, &backup_dir).await?;
-    }
+        Some(backup_file(&dest_path, &backup_dir).await?)
+    } else {
+        None
+    };
 
     let mut resp = client.get(url).send().await?.error_for_status()?;
     let mut file = fs::File::create(&part_path).await?;
@@ -61,9 +66,47 @@ pub async fn download_mod_update(
     file.flush().await?;
     drop(file);
     fs::rename(&part_path, &dest_path).await?;
+
+    if let Some(expected_sha512) = row.remote_file_sha512.as_deref() {
+        let actual_sha512 =
+            hash_file_sha512(&dest_path).map_err(|e| DownloadError::Verify(e.to_string()))?;
+        if !actual_sha512.eq_ignore_ascii_case(expected_sha512) {
+            rollback_download(&dest_path, backup_dest.as_deref()).await?;
+            return Err(DownloadError::Verify(format!(
+                "downloaded file hash mismatch (expected {}, got {})",
+                short_hash(expected_sha512),
+                short_hash(&actual_sha512)
+            )));
+        }
+    }
+
+    if config.download.verify_after_download {
+        if let Err(e) = crate::verify::verify_update_jar(
+            &dest_path,
+            config.minecraft_version(),
+            &config.normalized_loaders(),
+        ) {
+            rollback_download(&dest_path, backup_dest.as_deref()).await?;
+            return Err(DownloadError::Verify(e));
+        }
+    }
+
     Ok(dest_path)
 }
 
 fn chrono_date_folder() -> String {
     chrono::Utc::now().format("%Y-%m-%d").to_string()
+}
+
+async fn rollback_download(dest_path: &Path, backup_path: Option<&Path>) -> Result<(), DownloadError> {
+    if let Some(bp) = backup_path {
+        fs::copy(bp, dest_path).await?;
+    } else {
+        let _ = fs::remove_file(dest_path).await;
+    }
+    Ok(())
+}
+
+fn short_hash(hash: &str) -> &str {
+    hash.get(..8).unwrap_or(hash)
 }

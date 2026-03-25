@@ -70,7 +70,7 @@ fn load_merged(cli: &Cli) -> anyhow::Result<Config> {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "~/.config/mod-updater/config.toml".into());
         anyhow::anyhow!(
-            "{e}\n\nSet mods_dir in {path_hint}, or pass --mods-dir, or set env MOD_UPDATER_MODS_DIR.\nExample TOML:\n  mods_dir = \"/path/to/.minecraft/mods\"\n  minecraft_version = \"1.21.1\"\n  loaders = [\"fabric\"]\n  user_agent = \"you/mod-updater/0.1 (email@domain)\""
+            "{e}\n\nSet mods_dir in {path_hint}, or pass --mods-dir, or set env MOD_UPDATER_MODS_DIR.\nExample TOML:\n  mods_dir = \"/path/to/.minecraft/mods\"\n  minecraft_version = \"1.21.1\"  # default if omitted\n  loaders = [\"fabric\"]\n  user_agent = \"you/mod-updater/0.1 (email@domain)\""
         )
     })
 }

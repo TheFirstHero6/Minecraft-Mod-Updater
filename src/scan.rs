@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+use sha1::Sha1;
 use sha2::{Digest, Sha512};
 use thiserror::Error;
 use zip::ZipArchive;
@@ -47,6 +48,21 @@ pub fn hash_file_sha512(path: &Path) -> Result<String, ScanError> {
     let file = File::open(path).map_err(|e| io_err(path, e))?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha512::new();
+    let mut buf = [0u8; 65_536];
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| io_err(path, e))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+pub fn hash_file_sha1(path: &Path) -> Result<String, ScanError> {
+    let file = File::open(path).map_err(|e| io_err(path, e))?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha1::new();
     let mut buf = [0u8; 65_536];
     loop {
         let n = reader.read(&mut buf).map_err(|e| io_err(path, e))?;

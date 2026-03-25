@@ -28,6 +28,10 @@ pub struct ModrinthVersion {
     pub version_number: String,
     #[serde(default)]
     pub version_type: Option<String>,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
     pub files: Vec<ModrinthFile>,
 }
 
@@ -37,6 +41,18 @@ pub struct ModrinthFile {
     pub filename: String,
     #[serde(default)]
     pub primary: Option<bool>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
+    #[serde(default)]
+    pub hashes: ModrinthHashes,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ModrinthHashes {
+    #[serde(default)]
+    pub sha512: Option<String>,
+    #[serde(default)]
+    pub sha1: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

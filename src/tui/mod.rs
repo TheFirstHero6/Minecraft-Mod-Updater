@@ -14,7 +14,9 @@ use futures::StreamExt;
 use ratatui::layout::{Constraint, Direction, Layout, Margin};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Cell, Paragraph, Row, Table, TableState, Wrap,
+};
 use ratatui::{Frame, Terminal};
 use tokio::sync::oneshot;
 
@@ -224,7 +226,8 @@ fn draw(
         ellipsize_path(config.mods_dir(), 48)
     );
     let header_block = Block::default()
-        .borders(Borders::BOTTOM)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.border))
         .title(Span::styled(
             " Minecraft mod updates ",
@@ -259,14 +262,15 @@ fn draw(
     f.render_widget(header_para, header_inner);
 
     let widths = [
-        Constraint::Percentage(22),
+        Constraint::Percentage(20),
         Constraint::Percentage(10),
         Constraint::Percentage(12),
         Constraint::Percentage(10),
+        Constraint::Percentage(8),
         Constraint::Percentage(10),
-        Constraint::Percentage(36),
+        Constraint::Percentage(30),
     ];
-    let header_cells: Vec<Cell> = ["Mod", "Local", "Remote", "Source", "Status", "Note"]
+    let header_cells: Vec<Cell> = ["Mod", "Local", "Remote", "Source", "Match", "Status", "Note"]
         .iter()
         .map(|h| {
             Cell::from(*h).style(
@@ -293,6 +297,7 @@ fn draw(
                 }
                 None => Span::styled("—", theme.dim),
             };
+            let identity = match_hint(r);
             let (st_label, st_color) = status_style(r.status, theme);
             let note = r
                 .detail
@@ -305,6 +310,7 @@ fn draw(
                 Cell::from(local),
                 Cell::from(remote),
                 Cell::from(Line::from(vec![src])),
+                Cell::from(identity),
                 Cell::from(Span::styled(st_label, Style::default().fg(st_color))),
                 Cell::from(ellipsize(note, 42)),
             ];
@@ -321,6 +327,7 @@ fn draw(
     let table_block = Block::default()
         .title(Span::styled(" Mods ", Style::default().fg(theme.title)))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.border))
         .padding(ratatui::widgets::Padding::uniform(1));
     let inner = table_block.inner(chunks[1]);
@@ -381,4 +388,23 @@ fn ellipsize(s: &str, max_chars: usize) -> String {
 
 fn ellipsize_path(p: &std::path::Path, max_chars: usize) -> String {
     ellipsize(&p.display().to_string(), max_chars)
+}
+
+fn match_hint(row: &ResolvedMod) -> Span<'static> {
+    match row.identity_match {
+        Some(true) => Span::styled("=", Style::default().fg(Color::Green)),
+        Some(false) => {
+            let suffix = row
+                .remote_file_sha512
+                .as_deref()
+                .map(short_hash)
+                .unwrap_or("≠");
+            Span::styled(format!("≠ {suffix}"), Style::default().fg(Color::Yellow))
+        }
+        None => Span::styled("?", Style::default().fg(Color::DarkGray)),
+    }
+}
+
+fn short_hash(hash: &str) -> &str {
+    hash.get(..6).unwrap_or(hash)
 }

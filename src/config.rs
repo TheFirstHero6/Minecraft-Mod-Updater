@@ -9,8 +9,6 @@ pub enum ConfigError {
     Read(#[from] std::io::Error),
     #[error("failed to parse config: {0}")]
     Parse(#[from] toml::de::Error),
-    #[error("minecraft_version is required")]
-    MissingMinecraftVersion,
     #[error("at least one loader is required")]
     MissingLoaders,
     #[error("mods_dir is required")]
@@ -29,9 +27,16 @@ pub struct DownloadConfig {
     pub backup_dir: Option<PathBuf>,
     #[serde(default)]
     pub dry_run: bool,
+    /// After download, read JAR metadata and reject (and restore backup) if Minecraft deps do not allow `minecraft_version`.
+    #[serde(default = "default_verify_after_download")]
+    pub verify_after_download: bool,
 }
 
 fn default_backup() -> bool {
+    true
+}
+
+fn default_verify_after_download() -> bool {
     true
 }
 
@@ -41,6 +46,7 @@ impl Default for DownloadConfig {
             backup: true,
             backup_dir: None,
             dry_run: false,
+            verify_after_download: true,
         }
     }
 }
@@ -103,10 +109,9 @@ impl Config {
         let minecraft_version = self
             .minecraft_version
             .clone()
-            .ok_or(ConfigError::MissingMinecraftVersion)?;
-        if minecraft_version.is_empty() {
-            return Err(ConfigError::MissingMinecraftVersion);
-        }
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "1.21.1".to_string());
         if self.loaders.is_empty() {
             return Err(ConfigError::MissingLoaders);
         }

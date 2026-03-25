@@ -142,6 +142,7 @@ impl CurseForgeClient {
                 })
                 .unwrap_or_default();
             let mod_loader = file.get("modLoader").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
+            let hash_sha1 = extract_cf_sha1(&file);
             out.push(FingerprintMatch {
                 mod_id,
                 file_id,
@@ -149,6 +150,7 @@ impl CurseForgeClient {
                 download_url,
                 game_versions,
                 mod_loader,
+                hash_sha1,
             });
         }
         Ok(out)
@@ -263,6 +265,7 @@ impl CurseForgeClient {
                     .unwrap_or("")
                     .to_string();
                 let release_type = f.get("releaseType").and_then(|x| x.as_i64()).unwrap_or(0) as u8;
+                let hash_sha1 = extract_cf_sha1(f);
                 candidates.push(CfFileSummary {
                     file_id,
                     file_name,
@@ -271,6 +274,7 @@ impl CurseForgeClient {
                     mod_loader,
                     file_date,
                     release_type,
+                    hash_sha1,
                 });
             }
             index += data.len() as i32;
@@ -302,6 +306,18 @@ impl CurseForgeClient {
     }
 }
 
+fn extract_cf_sha1(v: &Value) -> Option<String> {
+    let hashes = v.get("hashes")?.as_array()?;
+    for hash in hashes {
+        let algo = hash.get("algo").and_then(|x| x.as_i64());
+        let value = hash.get("value").and_then(|x| x.as_str());
+        if algo == Some(1) {
+            return value.map(|s| s.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct FingerprintMatch {
     pub mod_id: i32,
@@ -310,6 +326,7 @@ pub struct FingerprintMatch {
     pub download_url: Option<String>,
     pub game_versions: Vec<String>,
     pub mod_loader: i32,
+    pub hash_sha1: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -328,6 +345,7 @@ pub struct CfFileSummary {
     pub mod_loader: i32,
     pub file_date: String,
     pub release_type: u8,
+    pub hash_sha1: Option<String>,
 }
 
 #[cfg(test)]

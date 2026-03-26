@@ -16,47 +16,13 @@ A Rust TUI for checking and updating Minecraft mods from official host metadata,
 ## Requirements
 
 - Network access
-- One of:
-  - A release binary from GitHub Releases, or
-  - Rust toolchain (`cargo`, `rustc`) if installing from source
+- Rust toolchain (`cargo`, `rustc`)
 
 Install Rust with [rustup](https://rustup.rs/) if needed.
 
 ## Install
 
-### Option A: Prebuilt release binaries (recommended)
-
-Download the latest archive for your platform from GitHub Releases:
-
-- Linux: `mod-updater-x86_64-unknown-linux-gnu.tar.gz`
-- macOS: `mod-updater-x86_64-apple-darwin.tar.gz`
-- Windows: `mod-updater-x86_64-pc-windows-msvc.zip`
-
-Each release includes a matching `.sha256` file for checksum validation.
-
-#### Linux / macOS quick steps
-
-```bash
-tar -xzf mod-updater-<target>.tar.gz
-chmod +x mod-updater-<target>/mod-updater
-./mod-updater-<target>/mod-updater
-```
-
-Optional: move the binary into a folder already on your `PATH`.
-
-#### Windows quick steps
-
-1. Extract `mod-updater-x86_64-pc-windows-msvc.zip`
-2. Run `mod-updater.exe` from the extracted folder
-3. Optional: move the executable into a folder on `%PATH%`
-
-PowerShell checksum example:
-
-```powershell
-Get-FileHash .\mod-updater-x86_64-pc-windows-msvc.zip -Algorithm SHA256
-```
-
-### Option B: cargo install fallback
+### Option A: Install from source
 
 Clone and install from source:
 
@@ -72,7 +38,7 @@ Then run:
 mod-updater
 ```
 
-### Option C: Build without installing
+### Option B: Build from source (without installing)
 
 ```bash
 git clone https://github.com/TheFirstHero6/Minecraft-Mod-Updater

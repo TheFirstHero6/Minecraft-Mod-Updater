@@ -61,7 +61,7 @@ Get-FileHash .\mod-updater-x86_64-pc-windows-msvc.zip -Algorithm SHA256
 Clone and install from source:
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/TheFirstHero6/Minecraft-Mod-Updater
 cd mod-updater
 cargo install --path .
 ```

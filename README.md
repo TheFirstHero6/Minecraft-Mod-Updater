@@ -75,7 +75,7 @@ mod-updater
 ### Option C: Build without installing
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/TheFirstHero6/Minecraft-Mod-Updater
 cd mod-updater
 cargo build --release
 ```

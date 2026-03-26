@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::{cmp::Ordering, collections::BTreeSet};
 
 use tokio::sync::Semaphore;
 
@@ -193,55 +194,63 @@ async fn resolve_one(
         None => (scan.file_name.clone(), "?".to_string()),
     };
 
-    if let Ok(Some(ver)) = modrinth
+    let modrinth_detail = match modrinth
         .version_from_hash_update(&scan.sha512_hex, loaders, game_versions)
         .await
     {
-        if modrinth_response_matches_request(&ver, mc, loaders) {
-            let remote_v = ver.version_number.clone();
-            let project_label = modrinth
-                .get_project(&ver.project_id)
-                .await
-                .ok()
-                .map(|p| format!("{} ({})", p.title, p.slug));
-            let chosen = pick_modrinth_file(&ver, loaders, mc);
-            let download_url = chosen.map(|f| f.url.clone());
-            let download_filename = chosen.map(|f| f.filename.clone());
-            let remote_file_sha512 = chosen.and_then(|f| f.hashes.sha512.clone());
-            let identity_match = remote_file_sha512
-                .as_deref()
-                .map(|sha| sha.eq_ignore_ascii_case(&scan.sha512_hex));
-            let (status, detail) = if download_url.is_none() {
-                (
-                    ResolveStatus::Unknown,
-                    Some("Modrinth: no matching .jar for loader/MC in this version".into()),
-                )
-            } else if identity_match == Some(true) {
-                (ResolveStatus::UpToDate, None)
-            } else if identity_match == Some(false) {
-                (ResolveStatus::UpdateAvailable, None)
-            } else {
-                (
-                    ResolveStatus::Unknown,
-                    Some("Modrinth: selected file is missing sha512 in API response".into()),
-                )
-            };
-            return ResolvedMod {
-                scan,
-                display_name,
-                local_version,
-                remote_version: Some(remote_v),
-                source: Some(RemoteSource::Modrinth),
-                status,
-                download_url,
-                download_filename,
-                detail,
-                project_label,
-                remote_file_sha512,
-                identity_match,
-            };
+        Ok(Some(ver)) => {
+            if modrinth_response_matches_request(&ver, mc, loaders) {
+                let remote_v = ver.version_number.clone();
+                let project_label = modrinth
+                    .get_project(&ver.project_id)
+                    .await
+                    .ok()
+                    .map(|p| format!("{} ({})", p.title, p.slug));
+                let chosen = pick_modrinth_file(&ver, loaders, mc);
+                let download_url = chosen.map(|f| f.url.clone());
+                let download_filename = chosen.map(|f| f.filename.clone());
+                let remote_file_sha512 = chosen.and_then(|f| f.hashes.sha512.clone());
+                let identity_match = remote_file_sha512
+                    .as_deref()
+                    .map(|sha| sha.eq_ignore_ascii_case(&scan.sha512_hex));
+                let (status, detail) = if download_url.is_none() {
+                    (
+                        ResolveStatus::Unknown,
+                        Some("Modrinth: no matching .jar for requested loader/MC in this version".into()),
+                    )
+                } else if identity_match == Some(true) {
+                    (ResolveStatus::UpToDate, None)
+                } else if identity_match == Some(false) {
+                    (ResolveStatus::UpdateAvailable, None)
+                } else {
+                    (
+                        ResolveStatus::Unknown,
+                        Some("Modrinth: selected file is missing sha512 in API response".into()),
+                    )
+                };
+                return ResolvedMod {
+                    scan,
+                    display_name,
+                    local_version,
+                    remote_version: Some(remote_v),
+                    source: Some(RemoteSource::Modrinth),
+                    status,
+                    download_url,
+                    download_filename,
+                    detail,
+                    project_label,
+                    remote_file_sha512,
+                    identity_match,
+                };
+            }
+            Some(format!(
+                "Modrinth returned a candidate but tags do not exactly match target MC {mc} and loaders [{}]",
+                loaders.join(", ")
+            ))
         }
-    }
+        Ok(None) => modrinth_strict_miss_detail(modrinth, &scan.sha512_hex, mc, loaders).await,
+        Err(e) => Some(format!("Modrinth lookup failed: {e}")),
+    };
 
     if let Some(cf) = curse {
         let fp = match crate::curseforge::fingerprint_file(&scan.path) {
@@ -307,7 +316,10 @@ async fn resolve_one(
                     status: ResolveStatus::Unknown,
                     download_url: None,
                     download_filename: None,
-                    detail: Some("No file for target MC/loader on CurseForge".into()),
+                    detail: Some(format!(
+                        "CurseForge has no file for MC {mc} with loader {}",
+                        first_loader_or_any(loaders)
+                    )),
                     project_label: None,
                     remote_file_sha512: None,
                     identity_match: None,
@@ -364,7 +376,7 @@ async fn resolve_one(
         status: ResolveStatus::Unknown,
         download_url: None,
         download_filename: None,
-        detail: Some("Not on Modrinth; CurseForge key missing or no match".into()),
+        detail: Some(default_unknown_detail(modrinth_detail.as_deref(), mc, loaders)),
         project_label: None,
         remote_file_sha512: None,
         identity_match: None,
@@ -414,4 +426,125 @@ fn guess_version_from_filename(name: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn first_loader_or_any(loaders: &[String]) -> String {
+    loaders.first().cloned().unwrap_or_else(|| "any".into())
+}
+
+fn default_unknown_detail(modrinth_detail: Option<&str>, mc: &str, loaders: &[String]) -> String {
+    if let Some(mr) = modrinth_detail {
+        return format!("{mr}; CurseForge key missing or no match for MC {mc}/loader {}", first_loader_or_any(loaders));
+    }
+    format!(
+        "No update source matched target MC {mc} with loader {}; CurseForge key missing or no match",
+        first_loader_or_any(loaders)
+    )
+}
+
+async fn modrinth_strict_miss_detail(
+    modrinth: &ModrinthClient,
+    hash_hex: &str,
+    mc: &str,
+    loaders: &[String],
+) -> Option<String> {
+    let local = modrinth.version_from_hash(hash_hex).await.ok().flatten()?;
+    let versions = modrinth.project_versions(&local.project_id, 40).await.ok()?;
+    let mut tags = collect_tags_for_loaders(&versions, loaders);
+    if tags.is_empty() {
+        tags = collect_tags_for_loaders(&versions, &[]);
+    }
+    let preview = summarize_game_version_tags(&tags, mc, 6);
+    if preview.is_empty() {
+        return Some(format!(
+            "Modrinth strict match miss for MC {mc} (loaders: {}). No game version tags were available in recent project versions",
+            loaders.join(", ")
+        ));
+    }
+    Some(format!(
+        "Modrinth strict match miss for MC {mc} (loaders: {}). Nearby/available tags: {}",
+        loaders.join(", "),
+        preview.join(", ")
+    ))
+}
+
+fn collect_tags_for_loaders(versions: &[ModrinthVersion], loaders: &[String]) -> BTreeSet<String> {
+    let mut tags = BTreeSet::new();
+    for ver in versions {
+        let loader_ok = loaders.is_empty()
+            || ver.loaders.is_empty()
+            || loaders
+                .iter()
+                .any(|want| ver.loaders.iter().any(|have| have.eq_ignore_ascii_case(want)));
+        if !loader_ok {
+            continue;
+        }
+        for gv in &ver.game_versions {
+            tags.insert(gv.trim().to_string());
+        }
+    }
+    tags
+}
+
+fn summarize_game_version_tags(tags: &BTreeSet<String>, target_mc: &str, limit: usize) -> Vec<String> {
+    let mut ranked: Vec<(i32, String)> = tags
+        .iter()
+        .map(|gv| (tag_distance_score(gv, target_mc), gv.clone()))
+        .collect();
+    ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    ranked
+        .into_iter()
+        .take(limit)
+        .map(|(_, gv)| gv)
+        .collect()
+}
+
+fn tag_distance_score(tag: &str, target_mc: &str) -> i32 {
+    if tag.eq_ignore_ascii_case(target_mc) {
+        return 0;
+    }
+    let family = mc_family(target_mc);
+    if family.is_some() && mc_family(tag) == family {
+        return 1;
+    }
+    match crate::mc_version::compare_mc_versions(tag, target_mc) {
+        Some(Ordering::Equal) => 0,
+        Some(Ordering::Less) | Some(Ordering::Greater) => 2,
+        None => 3,
+    }
+}
+
+fn mc_family(ver: &str) -> Option<(u32, u32)> {
+    let mut parts = ver
+        .trim()
+        .split('.')
+        .map(|p| p.parse::<u32>().ok());
+    let major = parts.next().flatten()?;
+    let minor = parts.next().flatten()?;
+    Some((major, minor))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summarizes_nearby_tags_first() {
+        let tags = BTreeSet::from([
+            "1.20.4".to_string(),
+            "1.21".to_string(),
+            "1.21.1".to_string(),
+            "1.22".to_string(),
+        ]);
+        let preview = summarize_game_version_tags(&tags, "1.21.11", 3);
+        assert_eq!(preview[0], "1.21");
+        assert_eq!(preview[1], "1.21.1");
+    }
+
+    #[test]
+    fn unknown_detail_mentions_target_loader() {
+        let detail = default_unknown_detail(Some("Modrinth strict match miss"), "1.21.11", &["fabric".into()]);
+        assert!(detail.contains("1.21.11"));
+        assert!(detail.contains("fabric"));
+    }
 }

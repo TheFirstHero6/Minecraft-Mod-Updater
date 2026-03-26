@@ -23,25 +23,25 @@ impl Theme {
             return Self::plain();
         }
         Self {
-            header_fg: Color::Cyan,
-            border: Color::DarkGray,
+            header_fg: Color::White,
+            border: Color::Gray,
             title: Color::LightCyan,
-            normal: Style::default().fg(Color::Gray),
+            normal: Style::default().fg(Color::White),
             dim: Style::default().fg(Color::DarkGray),
             selected: Style::default()
                 .fg(Color::Black)
-                .bg(Color::LightBlue)
+                .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
             header_cell: Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
-            modrinth: Color::Green,
+            modrinth: Color::LightGreen,
             curseforge: Color::Rgb(244, 114, 182),
-            ok: Color::Rgb(134, 239, 172),
-            warn: Color::Rgb(251, 191, 36),
-            err: Color::Rgb(248, 113, 113),
-            progress: Color::LightCyan,
-            footer: Style::default().fg(Color::DarkGray),
+            ok: Color::LightGreen,
+            warn: Color::Yellow,
+            err: Color::LightRed,
+            progress: Color::Cyan,
+            footer: Style::default().fg(Color::Gray),
         }
     }
 

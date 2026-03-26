@@ -118,4 +118,43 @@ impl ModrinthClient {
         }
         Ok(resp.json().await?)
     }
+
+    /// Version metadata for a local file hash. Returns `Ok(None)` on 404.
+    pub async fn version_from_hash(
+        &self,
+        hash_hex: &str,
+    ) -> Result<Option<ModrinthVersion>, ModrinthError> {
+        let url = format!("{}/version_file/{}?algorithm=sha512", BASE, hash_hex);
+        let resp = self.client.get(&url).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ModrinthError::Api { status, body });
+        }
+        Ok(Some(resp.json().await?))
+    }
+
+    /// Recent versions for a project. `limit` is capped by Modrinth API.
+    pub async fn project_versions(
+        &self,
+        project_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ModrinthVersion>, ModrinthError> {
+        let url = format!("{}/project/{}/version", BASE, project_id);
+        let resp = self
+            .client
+            .get(&url)
+            .query(&[("limit", limit.to_string())])
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ModrinthError::Api { status, body });
+        }
+        Ok(resp.json().await?)
+    }
 }

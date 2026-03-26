@@ -11,11 +11,11 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use futures::StreamExt;
-use ratatui::layout::{Constraint, Direction, Layout, Margin};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, Paragraph, Row, Table, TableState, Wrap,
+    Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap,
 };
 use ratatui::{Frame, Terminal};
 use tokio::sync::oneshot;
@@ -64,8 +64,9 @@ pub async fn run(config: Arc<Config>, scans: Vec<ScannedMod>) -> anyhow::Result<
     let mut loading = true;
     let mut table_state = TableState::default();
     let mut spinner: usize = 0;
-    let spin_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let spin_chars = spinner_frames();
     let mut status_msg: Option<String> = None;
+    let mut show_help = false;
     let mut reader = crossterm::event::EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(120));
 
@@ -91,6 +92,7 @@ pub async fn run(config: Arc<Config>, scans: Vec<ScannedMod>) -> anyhow::Result<
                 spin_chars,
                 &mut table_state,
                 status_msg.as_deref(),
+                show_help,
             )
         })?;
 
@@ -108,6 +110,9 @@ pub async fn run(config: Arc<Config>, scans: Vec<ScannedMod>) -> anyhow::Result<
                     }
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
+                        KeyCode::Char('?') => {
+                            toggle_help(&mut show_help);
+                        }
                         KeyCode::Char('r') if !loading => {
                             let (tx, rx) = oneshot::channel();
                             let cfg_r = Arc::clone(&config);
@@ -204,9 +209,10 @@ fn draw(
     rows: &[ResolvedMod],
     loading: bool,
     spinner: usize,
-    spin_chars: [char; 10],
+    spin_chars: &[char],
     table_state: &mut TableState,
     status_msg: Option<&str>,
+    show_help: bool,
 ) {
     let full = f.area();
     let chunks = Layout::default()
@@ -243,9 +249,9 @@ fn draw(
         "✓ ".to_string()
     };
     let progress = if loading {
-        "Resolving mods against APIs…"
+        "Checking Modrinth/CurseForge for compatible updates..."
     } else {
-        "Ready."
+        "Ready. Press ? for help."
     };
     let header_para = Paragraph::new(Line::from(vec![
         Span::styled(
@@ -303,7 +309,7 @@ fn draw(
                 .detail
                 .as_deref()
                 .or(r.project_label.as_deref())
-                .unwrap_or("");
+                .unwrap_or_else(|| default_note(r.status));
             let name = ellipsize(&r.display_name, 28);
             let cells = vec![
                 Cell::from(name),
@@ -333,11 +339,20 @@ fn draw(
     let inner = table_block.inner(chunks[1]);
     f.render_widget(table_block, chunks[1]);
 
-    let table = Table::new(data_rows, widths)
-        .header(header)
-        .column_spacing(1)
-        .row_highlight_style(theme.selected);
-    f.render_stateful_widget(table, inner, table_state);
+    if rows.is_empty() && !loading {
+        let empty = Paragraph::new(
+            "No mod rows to display.\n\nCheck that your mods directory contains .jar files, then press r to rescan.",
+        )
+        .style(theme.normal)
+        .wrap(Wrap { trim: true });
+        f.render_widget(empty, inner);
+    } else {
+        let table = Table::new(data_rows, widths)
+            .header(header)
+            .column_spacing(1)
+            .row_highlight_style(theme.selected);
+        f.render_stateful_widget(table, inner, table_state);
+    }
 
     let footer_line = if let Some(s) = status_msg {
         Line::from(vec![
@@ -345,16 +360,7 @@ fn draw(
             Span::styled(s, theme.normal),
         ])
     } else {
-        Line::from(vec![
-            Span::styled("j/k ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled("move  ", theme.footer),
-            Span::styled("d ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled("download update  ", theme.footer),
-            Span::styled("r ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled("refresh  ", theme.footer),
-            Span::styled("q ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled("quit", theme.footer),
-        ])
+        Line::from(Span::styled(default_footer_text(), theme.footer))
     };
     let footer = Paragraph::new(footer_line).style(theme.footer);
     f.render_widget(
@@ -364,15 +370,42 @@ fn draw(
             vertical: 0,
         }),
     );
+
+    if show_help {
+        let area = centered_rect(72, 56, full);
+        let help = Paragraph::new(
+            "Controls\n\
+             - j / Down: Move selection down\n\
+             - k / Up: Move selection up\n\
+             - d: Download selected update\n\
+             - r: Refresh scan and resolve again\n\
+             - q / Esc: Quit\n\
+             - ?: Toggle this help\n\n\
+             Troubleshooting\n\
+             - If a mod shows unknown, the host may not have an exact tag for your target MC version.\n\
+             - Keep verify_after_download enabled to reject incompatible downloads.",
+        )
+        .block(
+            Block::default()
+                .title(Span::styled(" Help ", Style::default().fg(theme.title)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border)),
+        )
+        .style(theme.normal)
+        .wrap(Wrap { trim: true });
+        f.render_widget(Clear, area);
+        f.render_widget(help, area);
+    }
 }
 
 fn status_style(status: ResolveStatus, theme: &Theme) -> (&'static str, ratatui::style::Color) {
     match status {
-        ResolveStatus::Pending => ("…", theme.progress),
-        ResolveStatus::Resolving => ("…", theme.progress),
+        ResolveStatus::Pending => ("pending", theme.progress),
+        ResolveStatus::Resolving => ("resolving", theme.progress),
         ResolveStatus::UpToDate => ("up to date", theme.ok),
-        ResolveStatus::UpdateAvailable => ("update", theme.warn),
-        ResolveStatus::Unknown => ("unknown", Color::DarkGray),
+        ResolveStatus::UpdateAvailable => ("update available", theme.warn),
+        ResolveStatus::Unknown => ("needs review", Color::DarkGray),
         ResolveStatus::Error => ("error", theme.err),
     }
 }
@@ -407,4 +440,92 @@ fn match_hint(row: &ResolvedMod) -> Span<'static> {
 
 fn short_hash(hash: &str) -> &str {
     hash.get(..6).unwrap_or(hash)
+}
+
+fn toggle_help(show_help: &mut bool) {
+    *show_help = !*show_help;
+}
+
+fn spinner_frames() -> &'static [char] {
+    pick_spinner_frames(
+        std::env::var_os("MOD_UPDATER_ASCII").is_some(),
+        cfg!(target_os = "windows"),
+    )
+}
+
+fn pick_spinner_frames(force_ascii: bool, is_windows: bool) -> &'static [char] {
+    const UNICODE: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    const ASCII: [char; 4] = ['|', '/', '-', '\\'];
+    if force_ascii || is_windows {
+        &ASCII
+    } else {
+        &UNICODE
+    }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(vertical[1]);
+    horizontal[1]
+}
+
+fn default_footer_text() -> &'static str {
+    "? Help  |  j/k Move  |  d Download selected update  |  r Refresh scan  |  q Quit"
+}
+
+fn default_note(status: ResolveStatus) -> &'static str {
+    match status {
+        ResolveStatus::UpToDate => "No newer file found for the selected target.",
+        ResolveStatus::UpdateAvailable => "Press d to download the selected update.",
+        ResolveStatus::Unknown => "No compatible candidate found for this loader/MC target.",
+        ResolveStatus::Error => "Resolution failed. Check note details.",
+        ResolveStatus::Pending | ResolveStatus::Resolving => "Resolving metadata...",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_footer_text, pick_spinner_frames, toggle_help};
+
+    #[test]
+    fn spinner_prefers_ascii_when_forced() {
+        let frames = pick_spinner_frames(true, false);
+        assert_eq!(frames, ['|', '/', '-', '\\']);
+    }
+
+    #[test]
+    fn spinner_prefers_ascii_on_windows() {
+        let frames = pick_spinner_frames(false, true);
+        assert_eq!(frames, ['|', '/', '-', '\\']);
+    }
+
+    #[test]
+    fn help_toggle_switches_state() {
+        let mut show_help = false;
+        toggle_help(&mut show_help);
+        assert!(show_help);
+        toggle_help(&mut show_help);
+        assert!(!show_help);
+    }
+
+    #[test]
+    fn footer_has_action_labels() {
+        let footer = default_footer_text();
+        assert!(footer.contains("? Help"));
+        assert!(footer.contains("Download selected update"));
+    }
 }

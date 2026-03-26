@@ -2,28 +2,77 @@
 
 A Rust TUI for checking and updating Minecraft mods from official host metadata, with a focus on Modrinth and optional CurseForge support.
 
-This project is currently intended for **Unix-like operating systems only** (Linux, macOS, BSD, etc.). It has not been packaged for the AUR yet, so the current installation method is **build from source**.
+`mod-updater` runs on Linux, macOS, and Windows.
 
 ## Features
 
 - Scans a configured Minecraft `mods` directory for `.jar` files
-- Resolves updates against **Modrinth** using official API metadata
-- Optionally uses **CurseForge** when an API key is configured
+- Resolves updates against Modrinth using official API metadata
+- Optionally uses CurseForge when an API key is configured
 - Uses strict Minecraft-version matching logic
 - Verifies downloaded files before keeping them
 - Provides a keyboard-driven TUI for reviewing and applying updates
 
 ## Requirements
 
-- A Unix-like OS
-- Rust toolchain (`cargo`, `rustc`)
 - Network access
+- One of:
+  - A release binary from GitHub Releases, or
+  - Rust toolchain (`cargo`, `rustc`) if installing from source
 
 Install Rust with [rustup](https://rustup.rs/) if needed.
 
-## Build From Source
+## Install
 
-Clone the repository and build a release binary:
+### Option A: Prebuilt release binaries (recommended)
+
+Download the latest archive for your platform from GitHub Releases:
+
+- Linux: `mod-updater-x86_64-unknown-linux-gnu.tar.gz`
+- macOS: `mod-updater-x86_64-apple-darwin.tar.gz`
+- Windows: `mod-updater-x86_64-pc-windows-msvc.zip`
+
+Each release includes a matching `.sha256` file for checksum validation.
+
+#### Linux / macOS quick steps
+
+```bash
+tar -xzf mod-updater-<target>.tar.gz
+chmod +x mod-updater-<target>/mod-updater
+./mod-updater-<target>/mod-updater
+```
+
+Optional: move the binary into a folder already on your `PATH`.
+
+#### Windows quick steps
+
+1. Extract `mod-updater-x86_64-pc-windows-msvc.zip`
+2. Run `mod-updater.exe` from the extracted folder
+3. Optional: move the executable into a folder on `%PATH%`
+
+PowerShell checksum example:
+
+```powershell
+Get-FileHash .\mod-updater-x86_64-pc-windows-msvc.zip -Algorithm SHA256
+```
+
+### Option B: cargo install fallback
+
+Clone and install from source:
+
+```bash
+git clone <your-repo-url>
+cd mod-updater
+cargo install --path .
+```
+
+Then run:
+
+```bash
+mod-updater
+```
+
+### Option C: Build without installing
 
 ```bash
 git clone <your-repo-url>
@@ -31,58 +80,18 @@ cd mod-updater
 cargo build --release
 ```
 
-The executable will be created at:
+Binary output:
 
-```text
-target/release/mod-updater
-```
-
-## Install Locally
-
-You can run the binary directly:
-
-```bash
-./target/release/mod-updater
-```
-
-Or copy/symlink it into `~/.local/bin`:
-
-```bash
-mkdir -p ~/.local/bin
-ln -sf "$PWD/target/release/mod-updater" ~/.local/bin/mdate
-```
-
-If `~/.local/bin` is already on your `PATH`, you can launch it as:
-
-```bash
-mdate
-```
-
-If you prefer an alias instead, add something like this to `~/.zshrc`:
-
-```zsh
-alias mdate="$HOME/.local/bin/mdate"
-```
-
-Then reload your shell:
-
-```zsh
-source ~/.zshrc
-```
+- Linux/macOS: `target/release/mod-updater`
+- Windows: `target/release/mod-updater.exe`
 
 ## Configuration
 
-By default, the app looks for:
+By default, the app looks for `mod-updater/config.toml` in your platform config directory:
 
-```text
-~/.config/mod-updater/config.toml
-```
-
-Create the directory if it does not exist:
-
-```bash
-mkdir -p ~/.config/mod-updater
-```
+- Linux: `~/.config/mod-updater/config.toml`
+- macOS: `~/Library/Application Support/mod-updater/config.toml` (platform-resolved)
+- Windows: `%APPDATA%\\mod-updater\\config.toml` (platform-resolved)
 
 Example config:
 
@@ -107,23 +116,18 @@ verify_after_download = true
 - `mods_dir`
   - Required
   - Must point to the exact `mods` directory for the Minecraft instance you are updating
-
 - `minecraft_version`
   - Defaults to `1.21.1` if omitted
-  - Should be set to the **exact** Minecraft version your instance is running, for example `1.21.11`
-
+  - Should be set to the exact Minecraft version your instance is running, for example `1.21.11`
 - `loaders`
   - Required
   - Valid values include `fabric`, `forge`, `neoforge`, and `quilt`
-
 - `user_agent`
   - Strongly recommended for Modrinth
   - Example: `yourname/mod-updater/0.1.0 (you@example.com)`
-
 - `curseforge_api_key`
   - Optional
   - Only needed if you want CurseForge fallback support
-
 - `[download].verify_after_download`
   - Recommended to keep enabled
   - Rejects incompatible downloads and restores from backup when possible
@@ -132,11 +136,9 @@ verify_after_download = true
 
 These can be used in addition to config:
 
-- `MOD_UPDATER_MODS_DIR`
-  - Fallback for `mods_dir`
-
-- `CURSEFORGE_API_KEY`
-  - Fallback for `curseforge_api_key`
+- `MOD_UPDATER_MODS_DIR` (fallback for `mods_dir`)
+- `CURSEFORGE_API_KEY` (fallback for `curseforge_api_key`)
+- `MOD_UPDATER_ASCII` (optional; force ASCII spinner/icons in TUI)
 
 ## CLI Usage
 
@@ -170,14 +172,15 @@ Available CLI flags:
 - `j` / `Down`: move selection down
 - `k` / `Up`: move selection up
 - `d`: download update for selected row
-- `r`: refresh/rescan
+- `r`: refresh and rescan
+- `?`: toggle help
 - `q` / `Esc`: quit
 
 ## Notes On Accuracy
 
 For best results:
 
-- Set `minecraft_version` to the **exact** version your instance runs
+- Set `minecraft_version` to the exact version your instance runs
 - Set the correct loader in `loaders`
 - Keep `verify_after_download = true`
 - Use a proper `user_agent` so Modrinth requests are well-formed

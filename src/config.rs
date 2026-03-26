@@ -168,11 +168,49 @@ pub fn normalize_loader(s: &str) -> String {
 
 fn expand_home(p: &Path) -> PathBuf {
     if let Some(st) = p.to_str() {
-        if let Some(rest) = st.strip_prefix("~/") {
-            if let Some(h) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()) {
-                return h.join(rest);
+        if let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()) {
+            if st == "~" {
+                return home;
+            }
+            if let Some(rest) = st.strip_prefix("~/") {
+                return home.join(rest);
+            }
+            if let Some(rest) = st.strip_prefix("~\\") {
+                let mut out = home;
+                for part in rest.split(['\\', '/']).filter(|s| !s.is_empty()) {
+                    out.push(part);
+                }
+                return out;
             }
         }
     }
     p.to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expand_home;
+    use std::path::{Path, PathBuf};
+
+    fn home_dir() -> Option<PathBuf> {
+        directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf())
+    }
+
+    #[test]
+    fn expand_home_unix_prefix() {
+        let Some(home) = home_dir() else {
+            return;
+        };
+        let expanded = expand_home(Path::new("~/mods"));
+        assert_eq!(expanded, home.join("mods"));
+    }
+
+    #[test]
+    fn expand_home_windows_prefix() {
+        let Some(home) = home_dir() else {
+            return;
+        };
+        let expanded = expand_home(Path::new("~\\mods\\pack"));
+        assert_eq!(expanded, home.join("mods").join("pack"));
+    }
 }

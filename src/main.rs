@@ -66,13 +66,17 @@ fn load_merged(cli: &Cli) -> anyhow::Result<Config> {
     }
 
     cfg.validate().map_err(|e| {
-        let path_hint = Config::default_config_path()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "~/.config/mod-updater/config.toml".into());
+        let path_hint = default_config_hint();
         anyhow::anyhow!(
             "{e}\n\nSet mods_dir in {path_hint}, or pass --mods-dir, or set env MOD_UPDATER_MODS_DIR.\nExample TOML:\n  mods_dir = \"/path/to/.minecraft/mods\"\n  minecraft_version = \"1.21.1\"  # default if omitted\n  loaders = [\"fabric\"]\n  user_agent = \"you/mod-updater/0.1 (email@domain)\""
         )
     })
+}
+
+fn default_config_hint() -> String {
+    Config::default_config_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "your platform's default config directory for mod-updater/config.toml".into())
 }
 
 #[tokio::main]
